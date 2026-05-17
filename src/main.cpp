@@ -487,6 +487,10 @@ void setup()
         LOG_INFO("No I2C device configured, Skip");
     }
 #elif HAS_WIRE
+#if defined(PIN_GPS_EN)
+    pinMode(PIN_GPS_EN, OUTPUT);
+    digitalWrite(PIN_GPS_EN, LOW);
+#endif
     Wire.begin();
 #endif
 #endif
