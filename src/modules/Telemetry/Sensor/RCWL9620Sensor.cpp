@@ -46,13 +46,41 @@ float RCWL9620Sensor::getDistance()
     _wire->write(0x01); // À tester aussi sans cette ligne si besoin
     uint8_t result = _wire->endTransmission();
     LOG_DEBUG("[RCWL9620] endTransmission result = %d", result);
-    delay(100); // délai pour laisser le capteur répondre
+    delay(120); // RCWL9620 needs ~120ms for a measurement
 
     LOG_DEBUG("[RCWL9620] Read i2c data:");
     _wire->requestFrom(_addr, (uint8_t)3);
 
     if (_wire->available() < 3) {
         LOG_DEBUG("[RCWL9620] less than 3 octets !");
+#if defined(ARCH_NRF52) && defined(PIN_WIRE_SDA) && defined(PIN_WIRE_SCL)
+        // Sensor likely holding SDA low — recover the bus so the next
+        // measurement (and any other I2C traffic) is not blocked.
+        _wire->end();
+        pinMode(PIN_WIRE_SCL, OUTPUT);
+        pinMode(PIN_WIRE_SDA, INPUT_PULLUP);
+        digitalWrite(PIN_WIRE_SCL, HIGH);
+        delayMicroseconds(5);
+        for (int i = 0; i < 9; i++) {
+            digitalWrite(PIN_WIRE_SCL, LOW);
+            delayMicroseconds(5);
+            digitalWrite(PIN_WIRE_SCL, HIGH);
+            delayMicroseconds(5);
+            if (digitalRead(PIN_WIRE_SDA) == HIGH)
+                break;
+        }
+        pinMode(PIN_WIRE_SDA, OUTPUT);
+        digitalWrite(PIN_WIRE_SDA, LOW);
+        delayMicroseconds(5);
+        digitalWrite(PIN_WIRE_SCL, HIGH);
+        delayMicroseconds(5);
+        digitalWrite(PIN_WIRE_SDA, HIGH);
+        delayMicroseconds(5);
+        pinMode(PIN_WIRE_SCL, INPUT);
+        pinMode(PIN_WIRE_SDA, INPUT);
+        delay(10);
+        _wire->begin();
+#endif
         return 0.0;
     }
 
