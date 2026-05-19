@@ -540,8 +540,6 @@ void setup()
     }
 #elif HAS_WIRE
     i2cScanner->scanPort(ScanI2C::I2CPort::WIRE);
-    pinMode(PIN_GPS_EN, OUTPUT);
-    digitalWrite(PIN_GPS_EN, HIGH);
 #endif
 
 
