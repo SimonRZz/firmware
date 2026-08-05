@@ -24,6 +24,7 @@
 #include "main.h"
 #include "meshUtils.h"
 #include "power.h"
+#include "sleep.h"
 #include <power/PowerHAL.h>
 
 #include "Nrf52SaadcLock.h"
@@ -247,6 +248,8 @@ int printf(const char *fmt, ...)
 namespace
 {
 constexpr uint8_t NRF52_MAGIC_LFS_IS_CORRUPT = 0xF5;
+// Arbitrary byte, distinct from NRF52_MAGIC_LFS_IS_CORRUPT (0xF5) and DFU_MAGIC_SKIP (0x6d).
+constexpr uint8_t NRF52_MAGIC_DETECTION_SENSOR_WAKE = 0xA5;
 constexpr uint32_t MULTIPLE_CORRUPTION_DELAY_MILLIS = 20 * 60 * 1000;
 static unsigned long millis_until_formatting_again = 0;
 
@@ -383,6 +386,18 @@ void nrf52Setup()
     // https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.nrf52832.ps.v1.1%2Fpower.html
     LOG_DEBUG("Reset reason: 0x%x", why);
 
+#if !MESHTASTIC_EXCLUDE_DETECTIONSENSOR
+    // GPREGRET survives this reset. If it holds our magic value, this boot was caused by
+    // nrf52DetectionSensorWakeISR() cutting a sleep short, so we know the configured pin
+    // really did trigger -- even though by the time DetectionSensorModule polls the pin
+    // again post-boot, a momentary trigger (button, reed switch) may already look idle again.
+    if (NRF_POWER->GPREGRET == NRF52_MAGIC_DETECTION_SENSOR_WAKE) {
+        NRF_POWER->GPREGRET = 0;
+        wokeFromDetectionSensorGPIO = true;
+        LOG_INFO("Woke from detection-sensor GPIO interrupt");
+    }
+#endif
+
 #ifdef USE_SEMIHOSTING
     nrf52InitSemiHosting();
 #endif
@@ -428,6 +443,9 @@ void nrf52Setup()
 #if !MESHTASTIC_EXCLUDE_DETECTIONSENSOR
 static void nrf52DetectionSensorWakeISR()
 {
+    // Direct register write: safe from interrupt context (no SVC/SoftDevice call involved),
+    // and GPREGRET survives the reset below so nrf52Setup() can pick it up.
+    NRF_POWER->GPREGRET = NRF52_MAGIC_DETECTION_SENSOR_WAKE;
     NVIC_SystemReset();
 }
 #endif

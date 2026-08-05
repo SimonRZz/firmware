@@ -5,6 +5,7 @@
 #include "PowerFSM.h"
 #include "configuration.h"
 #include "main.h"
+#include "sleep.h"
 #include <Throttle.h>
 DetectionSensorModule *detectionSensorModule;
 
@@ -85,6 +86,18 @@ int32_t DetectionSensorModule::runOnce()
     }
 
     // LOG_DEBUG("Detection Sensor Module: Current pin state: %i", digitalRead(moduleConfig.detection_sensor.monitor_pin));
+
+#if defined(ARCH_NRF52)
+    // We were just rebooted because this pin's interrupt fired during sleep (see cpuDeepSleep()).
+    // By the time we get here the trigger may already look idle again (e.g. a momentary reed
+    // switch or button), so report the detection now instead of relying on the current pin read.
+    if (wokeFromDetectionSensorGPIO) {
+        wokeFromDetectionSensorGPIO = false;
+        wasDetected = true;
+        sendDetectionMessage();
+        return DELAYED_INTERVAL;
+    }
+#endif
 
     if (!Throttle::isWithinTimespanMs(lastSentToMesh,
                                       Default::getConfiguredOrDefaultMs(moduleConfig.detection_sensor.minimum_broadcast_secs))) {
