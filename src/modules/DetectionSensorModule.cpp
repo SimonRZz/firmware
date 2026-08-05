@@ -5,6 +5,7 @@
 #include "PowerFSM.h"
 #include "configuration.h"
 #include "main.h"
+#include "meshUtils.h"
 #include "sleep.h"
 #include <Throttle.h>
 DetectionSensorModule *detectionSensorModule;
@@ -49,6 +50,16 @@ const static DetectionSensorTriggerHandler handlers[_meshtastic_ModuleConfig_Det
 
 int32_t DetectionSensorModule::runOnce()
 {
+#if defined(ARCH_NRF52)
+    if (sleepPending) {
+        sleepPending = false;
+        uint32_t nightyNightMs = Default::getConfiguredOrDefaultMs(moduleConfig.telemetry.environment_update_interval,
+                                                                    default_telemetry_broadcast_interval_secs);
+        LOG_DEBUG("Detection Sensor Module: sleep for %ims after handling GPIO wake", nightyNightMs);
+        doDeepSleep(nightyNightMs, true, false);
+    }
+#endif
+
     /*
         Uncomment the preferences below if you want to use the module
         without having to configure it from the PythonAPI or WebUI.
@@ -95,6 +106,14 @@ int32_t DetectionSensorModule::runOnce()
         wokeFromDetectionSensorGPIO = false;
         wasDetected = true;
         sendDetectionMessage();
+        // Otherwise the device would stay awake (not delay()-sleeping) until whatever telemetry
+        // module normally drives the sleep cycle happens to hit its own, possibly much later,
+        // scheduled send -- since this reboot was an early, out-of-cycle wake, not a scheduled one.
+        if (IS_ONE_OF(config.device.role, meshtastic_Config_DeviceConfig_Role_TRACKER,
+                     meshtastic_Config_DeviceConfig_Role_TAK_TRACKER, meshtastic_Config_DeviceConfig_Role_SENSOR) &&
+            config.power.is_power_saving) {
+            sleepPending = true;
+        }
         return DELAYED_INTERVAL;
     }
 #endif
