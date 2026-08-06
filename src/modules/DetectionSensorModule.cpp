@@ -3,6 +3,7 @@
 #include "MeshService.h"
 #include "NodeDB.h"
 #include "PowerFSM.h"
+#include "TransmitHistory.h"
 #include "configuration.h"
 #include "main.h"
 #include "meshUtils.h"
@@ -53,9 +54,17 @@ int32_t DetectionSensorModule::runOnce()
 #if defined(ARCH_NRF52)
     if (sleepPending) {
         sleepPending = false;
-        uint32_t nightyNightMs = Default::getConfiguredOrDefaultMs(moduleConfig.telemetry.environment_update_interval,
-                                                                    default_telemetry_broadcast_interval_secs);
-        LOG_DEBUG("Detection Sensor Module: sleep for %ims after handling GPIO wake", nightyNightMs);
+        uint32_t updateIntervalMs = Default::getConfiguredOrDefaultMs(moduleConfig.telemetry.environment_update_interval,
+                                                                       default_telemetry_broadcast_interval_secs);
+        // Sleep only for what's left of the current telemetry cycle, not a fresh full interval,
+        // so a GPIO wake doesn't keep pushing the regular telemetry schedule further out.
+        // 0x8002 must match TX_HISTORY_KEY_ENVIRONMENT_TELEMETRY in EnvironmentTelemetry.cpp.
+        uint32_t lastTelemetryMs = transmitHistory ? transmitHistory->getLastSentToMeshMillis(0x8002) : 0;
+        uint32_t elapsedMs = (lastTelemetryMs > 0) ? (millis() - lastTelemetryMs) : updateIntervalMs;
+        uint32_t remainingMs = (elapsedMs < updateIntervalMs) ? (updateIntervalMs - elapsedMs) : 0;
+        uint32_t nightyNightMs = (remainingMs > TEN_SECONDS_MS) ? remainingMs : TEN_SECONDS_MS;
+        LOG_DEBUG("Detection Sensor Module: sleep for %ims (rest of current telemetry cycle) after handling GPIO wake",
+                  nightyNightMs);
         doDeepSleep(nightyNightMs, true, false);
     }
 #endif
