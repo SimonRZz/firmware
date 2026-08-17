@@ -315,8 +315,11 @@ int32_t EnvironmentTelemetryModule::runOnce()
                                                               default_telemetry_broadcast_interval_secs, numOnlineNodes))) &&
             airTime->isTxAllowedChannelUtil(config.device.role != meshtastic_Config_DeviceConfig_Role_SENSOR) &&
             airTime->isTxAllowedAirUtil()) {
-            sendTelemetry();
-            if (transmitHistory)
+            // Only start a new throttle window if we actually got a reading out. Sensors that need
+            // warm-up before their first sample (e.g. BME680 via BSEC, which needs a few seconds of
+            // run() calls) make sendTelemetry() fail on the first attempt; burning the interval here
+            // would push the retry out by a whole environment_update_interval.
+            if (sendTelemetry() && transmitHistory)
                 transmitHistory->setLastSentToMesh(TX_HISTORY_KEY_ENVIRONMENT_TELEMETRY);
         } else if (((lastSentToPhone == 0) || !Throttle::isWithinTimespanMs(lastSentToPhone, sendToPhoneIntervalMs)) &&
                    (service->isToPhoneQueueEmpty())) {
