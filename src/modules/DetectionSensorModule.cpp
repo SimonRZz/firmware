@@ -122,6 +122,9 @@ int32_t DetectionSensorModule::runOnce()
                      meshtastic_Config_DeviceConfig_Role_TAK_TRACKER, meshtastic_Config_DeviceConfig_Role_SENSOR) &&
             config.power.is_power_saving) {
             sleepPending = true;
+            // Same grace period EnvironmentTelemetry uses before sleeping: the message we just
+            // queued still has to be transmitted, and deep sleep would cut that short.
+            return FIVE_SECONDS_MS;
         }
         return DELAYED_INTERVAL;
     }

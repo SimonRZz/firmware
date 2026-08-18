@@ -329,6 +329,13 @@ int32_t EnvironmentTelemetryModule::runOnce()
             lastSentToPhone = millis();
         }
     }
+    // sendTelemetry() asks for a 5s grace period before sleeping via setIntervalFromNow(), but our
+    // return value overrides that interval. Honour the grace period here, otherwise a sensor with a
+    // short poll interval (BME680 returns 35ms to pump BSEC) would shrink it to that interval and we
+    // would enter deep sleep while the packet we just queued is still being transmitted.
+    if (sleepOnNextExecution)
+        return FIVE_SECONDS_MS;
+
     return min(sendToPhoneIntervalMs, result);
 }
 
