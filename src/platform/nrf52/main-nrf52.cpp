@@ -456,6 +456,14 @@ void cpuDeepSleep(uint32_t msecToWake)
     // FIXME, power down SPI, I2C, RAMs
 #if HAS_WIRE
     Wire.end();
+#if defined(PIN_WIRE_SDA) && defined(PIN_WIRE_SCL)
+    // Release the bus lines as high-impedance inputs. Wire.end() only stops the TWIM; if the pins
+    // are left driven low, the pull-ups on an attached I2C module keep sinking current for the whole
+    // sleep. doDeepSleep() already does the equivalent for ESP32 (pinMode ANALOG) -- see the
+    // MESHTASTIC_EXCLUDE_I2C block there -- but nRF52 never got the same treatment.
+    pinMode(PIN_WIRE_SDA, INPUT);
+    pinMode(PIN_WIRE_SCL, INPUT);
+#endif
 #endif
     SPI.end();
 #if SPI_INTERFACES_COUNT > 1
