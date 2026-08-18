@@ -7,6 +7,7 @@
 #include "FSCommon.h"
 #include "SPILock.h"
 #include "TelemetrySensor.h"
+#include "sleep.h"
 
 #if __has_include(<Adafruit_BME680.h>)
 #include <cmath>
@@ -45,6 +46,7 @@ bool BME680Sensor::initDevice(TwoWire *bus, ScanI2C::FoundDevice *dev)
         }
         LOG_INFO("Init sensor: %s with the BSEC Library version %d.%d.%d.%d ", sensorName, bme680.version.major,
                  bme680.version.minor, bme680.version.major_bugfix, bme680.version.minor_bugfix);
+        notifyDeepSleepObserver.observe(&notifyDeepSleep);
     }
 
     if (status == 0)
@@ -189,6 +191,15 @@ void BME680Sensor::updateState()
 #else
     LOG_ERROR("ERROR: Filesystem not implemented");
 #endif
+}
+
+int BME680Sensor::prepareDeepSleep(void *unused)
+{
+    // Runs before doDeepSleep() shuts the bus down, so I2C is still usable here.
+    LOG_INFO("%s deep sleep, stopping measurements", sensorName);
+    bme680.sensor.setOpMode(BME68X_SLEEP_MODE);
+    checkStatus("prepareDeepSleep");
+    return 0;
 }
 
 void BME680Sensor::checkStatus(const char *functionName)

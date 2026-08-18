@@ -3,6 +3,7 @@
 #if !MESHTASTIC_EXCLUDE_ENVIRONMENTAL_SENSOR && (__has_include(<bsec2.h>) || __has_include(<Adafruit_BME680.h>))
 
 #include "../mesh/generated/meshtastic/telemetry.pb.h"
+#include "Observer.h"
 #include "TelemetrySensor.h"
 
 #if __has_include(<bsec2.h>)
@@ -51,6 +52,13 @@ class BME680Sensor : public TelemetrySensor
     void loadState();
     void updateState();
     void checkStatus(const char *functionName);
+
+    // BSEC keeps the sensor in a running measurement cycle, and nothing else in the tree powers
+    // telemetry sensors down before sleeping. Left as-is the gas heater keeps burning current for
+    // the whole sleep, so put the sensor back into its sleep mode first.
+    int prepareDeepSleep(void *unused);
+    CallbackObserver<BME680Sensor, void *> notifyDeepSleepObserver =
+        CallbackObserver<BME680Sensor, void *>(this, &BME680Sensor::prepareDeepSleep);
 #endif
 
   public:
