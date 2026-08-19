@@ -524,6 +524,15 @@ void ScanI2CTwoWire::scanPort(I2CPort port, uint8_t *address, uint8_t asize)
 
                 SCAN_SIMPLE_CASE(SHTC3_ADDR, SHTXX, "SHTXX", (uint8_t)addr.address)
             case RCWL9620_ADDR:
+#if defined(ARCH_NRF52)
+                // The MAX30102 PARTID probe (write 0xFF + read 1B) is meaningless
+                // to an RCWL9620 and on nRF52 the sensor leaves SDA held low. The
+                // nRF52 TWIM has no bus-clear/timeout, so the next requestFrom in
+                // getRegisterValue hangs forever. Skip the disambiguation and
+                // assume RCWL9620 at this address on nRF52.
+                type = RCWL9620;
+                logFoundDevice("RCWL9620", (uint8_t)addr.address);
+#else
                 // get MAX30102 PARTID
                 registerValue = getRegisterValue(ScanI2CTwoWire::RegisterLocation(addr, 0xFF), 1);
                 if (registerValue == 0x15) {
@@ -534,6 +543,40 @@ void ScanI2CTwoWire::scanPort(I2CPort port, uint8_t *address, uint8_t asize)
                     type = RCWL9620;
                     logFoundDevice("RCWL9620", (uint8_t)addr.address);
                 }
+#endif
+#if defined(ARCH_NRF52) && defined(PIN_WIRE_SDA) && defined(PIN_WIRE_SCL)
+                // The MAX30102 probe above (write 0xFF + read 1B) is meaningless to an
+                // RCWL9620 and on nRF52 leaves the sensor holding SDA low. The nRF52
+                // TWIM has no bus-clear/timeout, so the next endTransmission() in the
+                // scan loop hangs forever. Recover the bus by releasing the TWIM,
+                // clocking SCL 9 times via GPIO, generating a STOP, then re-init.
+                {
+                    i2cBus->end();
+                    pinMode(PIN_WIRE_SCL, OUTPUT);
+                    pinMode(PIN_WIRE_SDA, INPUT_PULLUP);
+                    digitalWrite(PIN_WIRE_SCL, HIGH);
+                    delayMicroseconds(5);
+                    for (int i = 0; i < 9; i++) {
+                        digitalWrite(PIN_WIRE_SCL, LOW);
+                        delayMicroseconds(5);
+                        digitalWrite(PIN_WIRE_SCL, HIGH);
+                        delayMicroseconds(5);
+                        if (digitalRead(PIN_WIRE_SDA) == HIGH)
+                            break;
+                    }
+                    pinMode(PIN_WIRE_SDA, OUTPUT);
+                    digitalWrite(PIN_WIRE_SDA, LOW);
+                    delayMicroseconds(5);
+                    digitalWrite(PIN_WIRE_SCL, HIGH);
+                    delayMicroseconds(5);
+                    digitalWrite(PIN_WIRE_SDA, HIGH);
+                    delayMicroseconds(5);
+                    pinMode(PIN_WIRE_SCL, INPUT);
+                    pinMode(PIN_WIRE_SDA, INPUT);
+                    delay(10);
+                    i2cBus->begin();
+                }
+#endif
                 break;
 
             case LPS22HB_ADDR_ALT:

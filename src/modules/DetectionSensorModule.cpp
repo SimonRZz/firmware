@@ -3,8 +3,11 @@
 #include "MeshService.h"
 #include "NodeDB.h"
 #include "PowerFSM.h"
+#include "TransmitHistory.h"
 #include "configuration.h"
 #include "main.h"
+#include "meshUtils.h"
+#include "sleep.h"
 #include <Throttle.h>
 DetectionSensorModule *detectionSensorModule;
 
@@ -48,6 +51,24 @@ const static DetectionSensorTriggerHandler handlers[_meshtastic_ModuleConfig_Det
 
 int32_t DetectionSensorModule::runOnce()
 {
+#if defined(ARCH_NRF52)
+    if (sleepPending) {
+        sleepPending = false;
+        uint32_t updateIntervalMs = Default::getConfiguredOrDefaultMs(moduleConfig.telemetry.environment_update_interval,
+                                                                       default_telemetry_broadcast_interval_secs);
+        // Sleep only for what's left of the current telemetry cycle, not a fresh full interval,
+        // so a GPIO wake doesn't keep pushing the regular telemetry schedule further out.
+        // 0x8002 must match TX_HISTORY_KEY_ENVIRONMENT_TELEMETRY in EnvironmentTelemetry.cpp.
+        uint32_t lastTelemetryMs = transmitHistory ? transmitHistory->getLastSentToMeshMillis(0x8002) : 0;
+        uint32_t elapsedMs = (lastTelemetryMs > 0) ? (millis() - lastTelemetryMs) : updateIntervalMs;
+        uint32_t remainingMs = (elapsedMs < updateIntervalMs) ? (updateIntervalMs - elapsedMs) : 0;
+        uint32_t nightyNightMs = (remainingMs > TEN_SECONDS_MS) ? remainingMs : TEN_SECONDS_MS;
+        LOG_DEBUG("Detection Sensor Module: sleep for %ims (rest of current telemetry cycle) after handling GPIO wake",
+                  nightyNightMs);
+        doDeepSleep(nightyNightMs, true, false);
+    }
+#endif
+
     /*
         Uncomment the preferences below if you want to use the module
         without having to configure it from the PythonAPI or WebUI.
@@ -85,6 +106,29 @@ int32_t DetectionSensorModule::runOnce()
     }
 
     // LOG_DEBUG("Detection Sensor Module: Current pin state: %i", digitalRead(moduleConfig.detection_sensor.monitor_pin));
+
+#if defined(ARCH_NRF52)
+    // We were just rebooted because this pin's interrupt fired during sleep (see cpuDeepSleep()).
+    // By the time we get here the trigger may already look idle again (e.g. a momentary reed
+    // switch or button), so report the detection now instead of relying on the current pin read.
+    if (wokeFromDetectionSensorGPIO) {
+        wokeFromDetectionSensorGPIO = false;
+        wasDetected = true;
+        sendDetectionMessage();
+        // Otherwise the device would stay awake (not delay()-sleeping) until whatever telemetry
+        // module normally drives the sleep cycle happens to hit its own, possibly much later,
+        // scheduled send -- since this reboot was an early, out-of-cycle wake, not a scheduled one.
+        if (IS_ONE_OF(config.device.role, meshtastic_Config_DeviceConfig_Role_TRACKER,
+                     meshtastic_Config_DeviceConfig_Role_TAK_TRACKER, meshtastic_Config_DeviceConfig_Role_SENSOR) &&
+            config.power.is_power_saving) {
+            sleepPending = true;
+            // Same grace period EnvironmentTelemetry uses before sleeping: the message we just
+            // queued still has to be transmitted, and deep sleep would cut that short.
+            return FIVE_SECONDS_MS;
+        }
+        return DELAYED_INTERVAL;
+    }
+#endif
 
     if (!Throttle::isWithinTimespanMs(lastSentToMesh,
                                       Default::getConfiguredOrDefaultMs(moduleConfig.detection_sensor.minimum_broadcast_secs))) {

@@ -28,6 +28,11 @@ bool doPreflightSleep();
 
 extern int bootCount;
 
+// nRF52 only: true if the last boot was caused by our detection-sensor GPIO wake interrupt
+// (see cpuDeepSleep() in platform/nrf52/main-nrf52.cpp). Consumed and cleared by
+// DetectionSensorModule on its first run after boot.
+extern bool wokeFromDetectionSensorGPIO;
+
 // is bluetooth sw currently running?
 extern bool bluetoothOn;
 

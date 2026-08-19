@@ -69,6 +69,8 @@ class EnvironmentTelemetryModule : private concurrency::OSThread,
     meshtastic_MeshPacket *lastMeasurementPacket;
     uint32_t sendToPhoneIntervalMs = SECONDS_IN_MINUTE * 1000; // Send to phone every minute
     uint32_t lastSentToPhone = 0;
+    // millis() of the first failed send attempt of the current wake cycle, 0 while none has failed
+    uint32_t firstFailedSendMs = 0;
 };
 
 #endif

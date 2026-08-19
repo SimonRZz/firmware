@@ -133,6 +133,8 @@ extern void drawCommonHeader(OLEDDisplay *display, int16_t x, int16_t y, const c
 
 #define FAILED_STATE_SENSOR_READ_MULTIPLIER 10
 #define DISPLAY_RECEIVEID_MEASUREMENTS_ON_SCREEN true
+// How long to keep retrying a failing sensor read before sleeping without a reading anyway
+#define SENSOR_READ_RETRY_WINDOW_MS (30 * 1000)
 
 #include "Sensor/AddI2CSensorTemplate.h"
 #include "graphics/ScreenFonts.h"
@@ -315,9 +317,32 @@ int32_t EnvironmentTelemetryModule::runOnce()
                                                               default_telemetry_broadcast_interval_secs, numOnlineNodes))) &&
             airTime->isTxAllowedChannelUtil(config.device.role != meshtastic_Config_DeviceConfig_Role_SENSOR) &&
             airTime->isTxAllowedAirUtil()) {
-            sendTelemetry();
-            if (transmitHistory)
-                transmitHistory->setLastSentToMesh(TX_HISTORY_KEY_ENVIRONMENT_TELEMETRY);
+            // Only start a new throttle window if we actually got a reading out. Sensors that need
+            // warm-up before their first sample (e.g. BME680 via BSEC, which needs a few seconds of
+            // run() calls) make sendTelemetry() fail on the first attempt; burning the interval here
+            // would push the retry out by a whole environment_update_interval.
+            if (sendTelemetry()) {
+                firstFailedSendMs = 0;
+                if (transmitHistory)
+                    transmitHistory->setLastSentToMesh(TX_HISTORY_KEY_ENVIRONMENT_TELEMETRY);
+            } else if (IS_ONE_OF(config.device.role, meshtastic_Config_DeviceConfig_Role_TRACKER,
+                                 meshtastic_Config_DeviceConfig_Role_TAK_TRACKER,
+                                 meshtastic_Config_DeviceConfig_Role_SENSOR) &&
+                       config.power.is_power_saving) {
+                // The sleep trigger lives in sendTelemetry()'s success path, so a sensor that never
+                // yields a reading keeps the node awake until the next interval -- see
+                // meshtastic/firmware#10932, where BSEC call-timing violations under heavy mesh
+                // traffic do exactly that. Retry for a bounded window (the sensor may just be warming
+                // up), then sleep anyway and try again next cycle rather than burn the battery awake.
+                if (firstFailedSendMs == 0) {
+                    firstFailedSendMs = millis();
+                } else if (!Throttle::isWithinTimespanMs(firstFailedSendMs, SENSOR_READ_RETRY_WINDOW_MS)) {
+                    LOG_WARN("No sensor reading after %us, sleep anyway and retry next cycle",
+                             SENSOR_READ_RETRY_WINDOW_MS / 1000U);
+                    firstFailedSendMs = 0;
+                    sleepOnNextExecution = true;
+                }
+            }
         } else if (((lastSentToPhone == 0) || !Throttle::isWithinTimespanMs(lastSentToPhone, sendToPhoneIntervalMs)) &&
                    (service->isToPhoneQueueEmpty())) {
             // Just send to phone when it's not our time to send to mesh yet
@@ -326,6 +351,13 @@ int32_t EnvironmentTelemetryModule::runOnce()
             lastSentToPhone = millis();
         }
     }
+    // sendTelemetry() asks for a 5s grace period before sleeping via setIntervalFromNow(), but our
+    // return value overrides that interval. Honour the grace period here, otherwise a sensor with a
+    // short poll interval (BME680 returns 35ms to pump BSEC) would shrink it to that interval and we
+    // would enter deep sleep while the packet we just queued is still being transmitted.
+    if (sleepOnNextExecution)
+        return FIVE_SECONDS_MS;
+
     return min(sendToPhoneIntervalMs, result);
 }
 

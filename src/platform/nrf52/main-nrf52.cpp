@@ -24,6 +24,7 @@
 #include "main.h"
 #include "meshUtils.h"
 #include "power.h"
+#include "sleep.h"
 #include <power/PowerHAL.h>
 
 #include "Nrf52SaadcLock.h"
@@ -247,6 +248,8 @@ int printf(const char *fmt, ...)
 namespace
 {
 constexpr uint8_t NRF52_MAGIC_LFS_IS_CORRUPT = 0xF5;
+// Arbitrary byte, distinct from NRF52_MAGIC_LFS_IS_CORRUPT (0xF5) and DFU_MAGIC_SKIP (0x6d).
+constexpr uint8_t NRF52_MAGIC_DETECTION_SENSOR_WAKE = 0xA5;
 constexpr uint32_t MULTIPLE_CORRUPTION_DELAY_MILLIS = 20 * 60 * 1000;
 static unsigned long millis_until_formatting_again = 0;
 
@@ -383,6 +386,18 @@ void nrf52Setup()
     // https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.nrf52832.ps.v1.1%2Fpower.html
     LOG_DEBUG("Reset reason: 0x%x", why);
 
+#if !MESHTASTIC_EXCLUDE_DETECTIONSENSOR
+    // GPREGRET survives this reset. If it holds our magic value, this boot was caused by
+    // nrf52DetectionSensorWakeISR() cutting a sleep short, so we know the configured pin
+    // really did trigger -- even though by the time DetectionSensorModule polls the pin
+    // again post-boot, a momentary trigger (button, reed switch) may already look idle again.
+    if (NRF_POWER->GPREGRET == NRF52_MAGIC_DETECTION_SENSOR_WAKE) {
+        NRF_POWER->GPREGRET = 0;
+        wokeFromDetectionSensorGPIO = true;
+        LOG_INFO("Woke from detection-sensor GPIO interrupt");
+    }
+#endif
+
 #ifdef USE_SEMIHOSTING
     nrf52InitSemiHosting();
 #endif
@@ -425,12 +440,30 @@ void nrf52Setup()
     assert(r == NRFX_SUCCESS);
 }
 
+#if !MESHTASTIC_EXCLUDE_DETECTIONSENSOR
+static void nrf52DetectionSensorWakeISR()
+{
+    // Direct register write: safe from interrupt context (no SVC/SoftDevice call involved),
+    // and GPREGRET survives the reset below so nrf52Setup() can pick it up.
+    NRF_POWER->GPREGRET = NRF52_MAGIC_DETECTION_SENSOR_WAKE;
+    NVIC_SystemReset();
+}
+#endif
+
 void cpuDeepSleep(uint32_t msecToWake)
 {
     // FIXME, configure RTC or button press to wake us
     // FIXME, power down SPI, I2C, RAMs
 #if HAS_WIRE
     Wire.end();
+#if defined(PIN_WIRE_SDA) && defined(PIN_WIRE_SCL)
+    // Release the bus lines as high-impedance inputs. Wire.end() only stops the TWIM; if the pins
+    // are left driven low, the pull-ups on an attached I2C module keep sinking current for the whole
+    // sleep. doDeepSleep() already does the equivalent for ESP32 (pinMode ANALOG) -- see the
+    // MESHTASTIC_EXCLUDE_I2C block there -- but nRF52 never got the same treatment.
+    pinMode(PIN_WIRE_SDA, INPUT);
+    pinMode(PIN_WIRE_SCL, INPUT);
+#endif
 #endif
     SPI.end();
 #if SPI_INTERFACES_COUNT > 1
@@ -467,6 +500,31 @@ void cpuDeepSleep(uint32_t msecToWake)
                    meshtastic_Config_DeviceConfig_Role_TAK_TRACKER, meshtastic_Config_DeviceConfig_Role_SENSOR) &&
          config.power.is_power_saving == true)) {
         sd_power_mode_set(NRF_POWER_MODE_LOWPWR);
+#if !MESHTASTIC_EXCLUDE_DETECTIONSENSOR
+        // This is a delay(), not real System OFF sleep, so the CPU is still clocked and a normal
+        // GPIOTE interrupt can cut it short. Wake early if the configured detection-sensor pin
+        // reports its "detected" edge/level, so a GPIO-only sensor (PIR, reed switch, etc.) can wake
+        // the device instead of waiting out the full sleep interval. See meshtastic/firmware#6655.
+        if (moduleConfig.detection_sensor.enabled && moduleConfig.detection_sensor.monitor_pin > 0) {
+            uint8_t pin = moduleConfig.detection_sensor.monitor_pin;
+            pinMode(pin, moduleConfig.detection_sensor.use_pullup ? INPUT_PULLUP : INPUT);
+            uint32_t mode;
+            switch (moduleConfig.detection_sensor.detection_trigger_type) {
+            case meshtastic_ModuleConfig_DetectionSensorConfig_TriggerType_LOGIC_HIGH:
+            case meshtastic_ModuleConfig_DetectionSensorConfig_TriggerType_RISING_EDGE:
+                mode = RISING;
+                break;
+            case meshtastic_ModuleConfig_DetectionSensorConfig_TriggerType_EITHER_EDGE_ACTIVE_LOW:
+            case meshtastic_ModuleConfig_DetectionSensorConfig_TriggerType_EITHER_EDGE_ACTIVE_HIGH:
+                mode = CHANGE;
+                break;
+            default: // LOGIC_LOW, FALLING_EDGE
+                mode = FALLING;
+                break;
+            }
+            attachInterrupt(pin, nrf52DetectionSensorWakeISR, mode);
+        }
+#endif
         delay(msecToWake);
         NVIC_SystemReset();
     } else {
