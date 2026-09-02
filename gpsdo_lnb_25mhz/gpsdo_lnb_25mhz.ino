@@ -80,6 +80,13 @@ static const uint16_t SI_POLL_MS         = 2000;  // Reg-0-Abfrage
 static const uint16_t DEBUG_MS           = 1000;  // Heartbeat auf USB-Serial
 static const uint8_t  NMEA_BUF_LEN       = 96;
 
+// Zustand der Referenz, abgeleitet aus Si5351-Register 0.
+// MUSS vor der ersten Funktionsdefinition stehen: die Arduino-IDE generiert
+// Funktionsprototypen per ctags und fuegt sie genau dort ein. Ein Typ, der
+// weiter unten definiert wird, ist im Prototyp von refState()/updateLeds()
+// sonst noch unbekannt ("'RefState' does not name a type").
+enum RefState { REF_FAIL, REF_LOS, REF_LOL, REF_OK };
+
 // ---------------------------------------------------------------------------
 // Si5351 - minimaler Registertreiber
 // ---------------------------------------------------------------------------
@@ -260,8 +267,6 @@ static uint32_t gLastDebugMs  = 0;
 static uint32_t gRxBytes      = 0;
 static uint32_t gNmeaCount    = 0;
 static uint32_t gGpsBaud      = 9600;
-
-enum RefState { REF_FAIL, REF_LOS, REF_LOL, REF_OK };
 
 static RefState refState()
 {
