@@ -133,12 +133,60 @@ Referenz. Für den Schmalbandtransponder (vertikale Polarisation):
 - **22-kHz-Ton aus** — mit Ton schaltet der LNB aufs Highband und der LO
   springt auf 10,600 GHz
 
+## Selbststörung: die 63. Harmonische trifft GPS L1
+
+Der wichtigste Fallstrick dieses Aufbaus, und er ist rein rechnerisch
+vorhersagbar:
+
+```
+25 MHz × 63 = 1.575,000 MHz
+GPS L1      = 1.575,42  MHz     →  420 kHz Abstand
+```
+
+Das C/A-Signal ist ±1,023 MHz breit, die 63. Harmonische liegt also **im
+Durchlassbereich des eigenen GPS-Empfängers**. 63 ist ungerade — genau die
+Harmonischen, die ein Rechteck kräftig produziert. Im Aufbau bestätigt: mit
+8 mA Treiberstrom brauchte der NEO-7M auffällig lange für einen Fix und sah
+wenige Satelliten, mit 2 mA sofort deutlich mehr.
+
+Eine externe Antenne hilft dagegen nicht — der Störer sitzt neben dem
+Empfänger, nicht am Himmel, und das Antennenkabel führt an ihm vorbei.
+
+Die 24 MHz des Timepulses sind unkritisch: 65 × 24 = 1560 und 66 × 24 =
+1584 MHz liegen beide außerhalb des Bandes.
+
+**Nachweis:** RTL-SDR oder tinySA auf 1.575,000 MHz, kurzer Draht als Sonde
+neben der Platine, GPSDO aus- und einschalten. Über eine große Spanne sieht
+man den kompletten Oberwellenkamm im 25-MHz-Raster.
+
+### Abhilfe: Tiefpass hinter CLK1
+
+```
+CLK1 ──┬── 220 nH ──┬── zum LNB
+       │            │
+      82 pF        82 pF
+       │            │
+      GND          GND
+```
+
+Pi-Tiefpass für 50 Ω, Grenzfrequenz rund 40 MHz. 1575 MHz liegt über fünf
+Oktaven darüber — rechnerisch weit über 40 dB Dämpfung, praktisch mit SMD-
+Bauteilen und ordentlicher Massefläche gut 40–50 dB.
+
+Der Nebeneffekt ist ein Gewinn: aus dem Rechteck wird ein weitgehend sauberer
+Sinus, und den will der PLL-Eingang des LNB ohnehin lieber sehen. Mit Filter
+lässt sich der Treiberstrom wieder erhöhen, falls am LNB mehr Pegel gebraucht
+wird — die Grundwelle bleibt, der Oberwellenmüll verschwindet. Ohne Filter
+muss man sich zwischen GPS-Empfang und LNB-Pegel entscheiden.
+
 ## Hardware-Hinweise
 
-- **Ausgangspegel:** CLK1 läuft auf 8 mA (`CLK1_CTRL = 0x4F`). Das Sat-Bias-Tee
-  ist für 950–2150 MHz gebaut und dämpft die 25 MHz auf dem Weg zum LNB
-  spürbar; mit 8 mA rastet die LNB-PLL zuverlässig ein. Bei kurzer, direkter
-  Verbindung reichen 4 mA (`0x4D`) und rauschen weniger.
+- **Ausgangspegel:** CLK1 läuft auf 2 mA (`CLK1_CTRL = 0x4C`). Das ergibt am
+  Quarz-Pad des LNB rund −5 dBm, also den üblichen Zielbereich von −10 bis
+  0 dBm. Mehr ist hier nicht besser: 8 mA ergäben dort etwa +5 dBm (~3,5 Vpp),
+  zu viel für einen Quarzoszillator-Eingang — und sie blenden das eigene GPS,
+  siehe unten. Höhere Werte (`0x4D`=4 mA, `0x4E`=6 mA, `0x4F`=8 mA) nur mit
+  Tiefpass.
 - **Einkopplung am LNB:** Quarz auslöten, 25 MHz über einen Serienkondensator
   auf das Quarz-Pad. In diesem Aufbau bewährt: 30 pF.
 - **XA-Einspeisung:** XA ist der Analogeingang des Quarzoszillators, kein

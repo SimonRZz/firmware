@@ -169,12 +169,24 @@ static bool si5351Init25MHz()
     siWriteReg(SI_REG_CLK2_CTRL, 0x80);
 
     // CLK1: PDN=0, MS1_INT=1 (Integer-Mode!), MS1_SRC=PLLA, INV=0,
-    //       CLK1_SRC=MS1=0b11, IDRV=8mA=0b11  ->  0b0100_1111 = 0x4F
-    // 8 mA statt der 4 mA aus gpsdo.c: das Sat-Bias-Tee ist fuer 950-2150 MHz
-    // gebaut und daempft die 25 MHz auf dem Weg zum LNB spuerbar. Mit 8 mA
-    // rastet die LNB-PLL zuverlaessig ein (im Aufbau verifiziert). Fuer eine
-    // kurze, direkte Verbindung reichen 4 mA (0x4D) und rauschen weniger.
-    siWriteReg(SI_REG_CLK1_CTRL, 0x4F);
+    //       CLK1_SRC=MS1=0b11, IDRV=2mA=0b00  ->  0b0100_1100 = 0x4C
+    //
+    // WARUM NUR 2 mA - zwei unabhaengige Gruende, beide im Aufbau gemessen:
+    //
+    // 1) Selbststoerung des GPS. Die 63. Harmonische des 25-MHz-Rechtecks
+    //    liegt bei 1575,000 MHz, GPS L1 bei 1575,42 MHz - also mitten im
+    //    2 MHz breiten C/A-Band. Bei 8 mA brauchte der NEO-7M auffaellig
+    //    lange fuer einen Fix und sah wenige Satelliten; bei 2 mA sofort
+    //    mehr Satelliten und schnellerer Lock.
+    // 2) Pegel am LNB. Bei 2 mA liegen am Quarz-Pad des LNB rund -5 dBm -
+    //    genau der uebliche Zielbereich (-10 bis 0 dBm). 8 mA ergaeben dort
+    //    etwa +5 dBm, also ca. 3,5 Vpp, und das ist fuer einen
+    //    Quarzoszillator-Eingang zu viel.
+    //
+    // Hoehere Werte (0x4D=4mA, 0x4E=6mA, 0x4F=8mA) nur mit Tiefpass hinter
+    // CLK1 verwenden - siehe README. Der Tiefpass loest den Zielkonflikt:
+    // Grundwelle bleibt kraeftig, Harmonische verschwinden.
+    siWriteReg(SI_REG_CLK1_CTRL, 0x4C);
 
     // Load-Cap 8 pF (Bits[7:6]=0b10) + vorgeschriebene Reserved-Bits 0x12.
     // AN619 fuehrt 0b00 als reserved - deshalb NICHT "0 pF", auch wenn der
