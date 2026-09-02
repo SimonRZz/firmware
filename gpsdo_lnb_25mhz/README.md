@@ -97,6 +97,42 @@ Etherkits `si5351.init()` pollt das SYS_INIT-Bit in einer `do/while`-Schleife
 und hängt ohne I2C-ACK endlos, weil `Wire.read()` dann `-1` → `0xFF` liefert
 und `0xFF >> 7 == 1` ist.
 
+## LNB: PremiumX PXS-SEW
+
+Lowband-LO **9,750 GHz** — für QO-100 der relevante Bereich.
+
+| | |
+|---|---|
+| Vervielfachung ab 25 MHz | 9750 / 25 = **exakt 390** |
+| ZF Schmalbandtransponder | 10489,550–10489,800 MHz → **739,550–739,800 MHz** |
+| ZF Mittenbake (PSK) | 10489,750 MHz → **739,750 MHz** |
+| ZF Breitbandtransponder | 10491–10499 MHz → 741–749 MHz |
+
+**Fehlerbudget.** Der LO-Fehler ist der Referenzfehler mal 9750 MHz:
+
+| Referenz | LO-Fehler |
+|---|---|
+| 2,5 ppm (freilaufender Quarz) | ±24,4 kHz |
+| 1 ppm | ±9,75 kHz |
+| 0,1 ppm | ±975 Hz |
+
+Ein freilaufender LNB-Quarz liegt damit um ein Vielfaches der SSB-Bandbreite
+daneben und driftet thermisch dazu — genau deshalb der GPSDO. Mit
+GPS-Disziplinierung bleibt der Fehler im Sub-Hz-Bereich.
+
+**Konsistenzcheck zur internen Referenz:** 9750 / 25 = 390 und
+10600 / 25 = 424 sind beide ganzzahlig, mit 27 MHz geht keines von beiden auf.
+Der PXS-SEW arbeitet also mit hoher Wahrscheinlichkeit auf 25 MHz — beim Öffnen
+trotzdem die Quarzbeschriftung prüfen, bevor der Quarz ausgelötet und durch die
+Einspeisung ersetzt wird.
+
+**Bias-Tee.** Über dasselbe Koax laufen Speisespannung, ZF und die 25-MHz-
+Referenz. Für den Schmalbandtransponder (vertikale Polarisation):
+
+- **13 V** (18 V wäre horizontal, das ist der Breitbandtransponder)
+- **22-kHz-Ton aus** — mit Ton schaltet der LNB aufs Highband und der LO
+  springt auf 10,600 GHz
+
 ## Hardware-Hinweise
 
 - **XA-Einspeisung:** XA ist der Analogeingang des Quarzoszillators, kein
