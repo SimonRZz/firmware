@@ -169,8 +169,12 @@ static bool si5351Init25MHz()
     siWriteReg(SI_REG_CLK2_CTRL, 0x80);
 
     // CLK1: PDN=0, MS1_INT=1 (Integer-Mode!), MS1_SRC=PLLA, INV=0,
-    //       CLK1_SRC=MS1=0b11, IDRV=4mA=0b01  ->  0b0100_1101 = 0x4D
-    siWriteReg(SI_REG_CLK1_CTRL, 0x4D);
+    //       CLK1_SRC=MS1=0b11, IDRV=8mA=0b11  ->  0b0100_1111 = 0x4F
+    // 8 mA statt der 4 mA aus gpsdo.c: das Sat-Bias-Tee ist fuer 950-2150 MHz
+    // gebaut und daempft die 25 MHz auf dem Weg zum LNB spuerbar. Mit 8 mA
+    // rastet die LNB-PLL zuverlaessig ein (im Aufbau verifiziert). Fuer eine
+    // kurze, direkte Verbindung reichen 4 mA (0x4D) und rauschen weniger.
+    siWriteReg(SI_REG_CLK1_CTRL, 0x4F);
 
     // Load-Cap 8 pF (Bits[7:6]=0b10) + vorgeschriebene Reserved-Bits 0x12.
     // AN619 fuehrt 0b00 als reserved - deshalb NICHT "0 pF", auch wenn der

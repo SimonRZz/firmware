@@ -135,6 +135,12 @@ Referenz. Für den Schmalbandtransponder (vertikale Polarisation):
 
 ## Hardware-Hinweise
 
+- **Ausgangspegel:** CLK1 läuft auf 8 mA (`CLK1_CTRL = 0x4F`). Das Sat-Bias-Tee
+  ist für 950–2150 MHz gebaut und dämpft die 25 MHz auf dem Weg zum LNB
+  spürbar; mit 8 mA rastet die LNB-PLL zuverlässig ein. Bei kurzer, direkter
+  Verbindung reichen 4 mA (`0x4D`) und rauschen weniger.
+- **Einkopplung am LNB:** Quarz auslöten, 25 MHz über einen Serienkondensator
+  auf das Quarz-Pad. In diesem Aufbau bewährt: 30 pF.
 - **XA-Einspeisung:** XA ist der Analogeingang des Quarzoszillators, kein
   CMOS-Clock-Eingang. Über 10 nF einkoppeln und auf ca. 0,6–1,0 Vpp dämpfen
   (z. B. 1 k / 470 R). XB bleibt offen. Leitung kurz halten — 24 MHz strahlen.
